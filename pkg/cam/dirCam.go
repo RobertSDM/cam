@@ -1,40 +1,36 @@
 package cam
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
 	"time"
 )
 
 type DirCam struct {
+	// A os.FileInfo for acessing informations about the file in a go,
+	// not needing to load every time the info
 	Info os.FileInfo
 
+	// The dir path the cam is monitoring
 	Path string
 
+	// Cache of the registered files in the directory.
 	Files []string
 }
 
-func (d *DirCam) Watch(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for _, file := range d.Files {
-		finfo, _ := os.Stat(file)
-		filecam := FileCam{
-			Path: file,
-			Info: finfo,
-		}
-		wg.Add(1)
-		go filecam.Watch(wg)
-	}
+func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
+	defer ctx.WaitGroup.Done()
 
 	for {
 
 		_, err := os.Stat(d.Path)
 		if os.IsNotExist(err) {
-			fmt.Printf("\"%s\" was DELETED", filepath.Base(d.Path))
+
+			if ctx.OnDirExclude != nil {
+				ctx.OnDirExclude(filepath.Base(d.Path))
+			}
+
 			return
 		}
 
@@ -61,7 +57,9 @@ func (d *DirCam) Watch(wg *sync.WaitGroup) {
 			}
 
 			if !exists {
-				fmt.Printf("\"%s\" was DELETED\n", filepath.Base(file))
+				if ctx.OnFileExclude != nil {
+					ctx.OnFileExclude(filepath.Base(file))
+				}
 				d.Files = slices.Delete(d.Files, i, i+1)
 			}
 
@@ -81,7 +79,6 @@ func (d *DirCam) Watch(wg *sync.WaitGroup) {
 
 			if !exists {
 				d.Files = append(d.Files, newPath)
-				fmt.Printf("\"%s\" was CREATED\n", path.Name())
 
 				finfo, _ := os.Stat(newPath)
 				filecam := FileCam{
@@ -89,8 +86,12 @@ func (d *DirCam) Watch(wg *sync.WaitGroup) {
 					Info: finfo,
 				}
 
-				wg.Add(1)
-				go filecam.Watch(wg)
+				ctx.WaitGroup.Add(1)
+				go filecam.Watch(ctx, fn)
+
+				if ctx.OnFileCreation != nil {
+					ctx.OnFileCreation(finfo)
+				}
 			}
 
 		}

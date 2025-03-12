@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"sync"
 	"time"
 )
 
@@ -13,12 +12,12 @@ type FileCam struct {
 	// not needing to load every time the info
 	Info os.FileInfo
 
-	// The file path the cam is monitoring 
+	// The file path the cam is monitoring
 	Path string
 }
 
-func (f *FileCam) Watch(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (f *FileCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
+	defer ctx.WaitGroup.Done()
 
 	for {
 
@@ -30,9 +29,15 @@ func (f *FileCam) Watch(wg *sync.WaitGroup) {
 		if stat.ModTime() != f.Info.ModTime() {
 			f.Info = stat
 
+			file, _ := os.Open(f.Path)
+
+			fn(f.Info, file)
+
+			file.Close()
+
 			log.Printf("\"%s\" was MODIFIED\n", path.Base(f.Path))
 		}
 
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 }

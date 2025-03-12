@@ -1,6 +1,7 @@
 package cam
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -8,7 +9,7 @@ import (
 
 type Cam interface {
 	// Method to start monitoring the path provided to a cam.
-	Watch(wg *sync.WaitGroup)
+	Watch(ctx *CamContext, fn func(os.FileInfo, *os.File))
 }
 
 type CamContext struct {
@@ -23,12 +24,46 @@ type CamContext struct {
 
 	// Group to add the cam created in goroutines.
 	WaitGroup *sync.WaitGroup
+
+	OnFileExclude  func(filename string)
+	OnFileCreation func(stat os.FileInfo)
+
+	OnDirExclude  func(dirname string)
+	// OnDirCreation func(os.FileInfo)
 }
 
-func (c *CamContext) StartMonitoring() {
+// Create a list of FileCam from a list of paths
+func (c *CamContext) FromFiles(files ...string) []*FileCam {
+	cams := make([]*FileCam, 0, len(files))
+
+	for _, file := range files {
+
+		finfo, err := os.Stat(file)
+
+		if os.IsNotExist(err) {
+			fmt.Printf("\"%s\" does not exist\n", filepath.Base(file))
+			continue
+		}
+
+		if finfo.IsDir() {
+			fmt.Println("the path provided is a dir path")
+			continue
+		}
+
+		filecam := &FileCam{
+			Info: finfo,
+			Path: file,
+		}
+
+		cams = append(cams, filecam)
+
+	}
+
+	return cams
 }
 
-func (c *CamContext) FromDir(dirPath string) Cam {
+// Create a dir, reading the dir directory (only the files) and passing it to the DirCam struct
+func (c *CamContext) CreateDirCam(dirPath string, fn func(info os.FileInfo, file *os.File)) *DirCam {
 	dinfo, err := os.Stat(dirPath)
 	if err != nil {
 		panic(err)
@@ -41,12 +76,23 @@ func (c *CamContext) FromDir(dirPath string) Cam {
 
 	paths := make([]string, 0, len(entries))
 
+	var newPath string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		newPath := filepath.Join(dirPath, entry.Name())
+		newPath = filepath.Join(dirPath, entry.Name())
 		paths = append(paths, newPath)
+	}
+
+	for _, file := range paths {
+		finfo, _ := os.Stat(file)
+		filecam := &FileCam{
+			Path: file,
+			Info: finfo,
+		}
+		c.WaitGroup.Add(1)
+		go filecam.Watch(c, fn)
 	}
 
 	cam := &DirCam{
