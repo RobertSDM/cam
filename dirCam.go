@@ -45,10 +45,13 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 
 		for _, m := range notStoredInCache {
 			newPath := filepath.Join(d.Path, m.Name())
+			err := ctx.NewCamFromFile(newPath, fn)
+			if err != nil{
+				continue
+			}
 
 			d.Cache = append(d.Cache, newPath)
 
-			ctx.NewCamFromFile(newPath, fn)
 		}
 
 		time.Sleep(500 * time.Millisecond)

@@ -13,7 +13,7 @@ import (
 type CamContext struct {
 	// Excluded paths will not be monitored.
 	// Regex can also be informed.
-	// Excluded []string
+	Excluded []string
 
 	// Directorys that obrigatory will be monitored. It will bypass the excluded property.
 	//
@@ -37,6 +37,21 @@ type CamContext struct {
 func (c *CamContext) NewCamsFromFiles(files []string, fn func(info os.FileInfo, file *os.File)) {
 	for _, file := range files {
 		finfo, err := os.Stat(file)
+
+		var valid bool
+		for _, ex := range c.Excluded {
+			match, _ := filepath.Match(ex, finfo.Name())
+
+			valid = match
+			if match {
+				break
+			}
+		}
+
+		if valid {
+			fmt.Println("no no")
+			continue
+		}
 
 		if os.IsNotExist(err) {
 			fmt.Printf("\"%s\" does not exist\n", filepath.Base(file))
@@ -67,6 +82,14 @@ func (c *CamContext) NewCamFromFile(file string, fn func(info os.FileInfo, file 
 	}
 	if finfo.IsDir() {
 		return errors.New("the path provided is not a file path")
+	}
+
+	for _, ex := range c.Excluded {
+		match, _ := filepath.Match(ex, finfo.Name())
+
+		if match {
+			return errors.New("the file is not valid")
+		}
 	}
 
 	filecam := &FileCam{
