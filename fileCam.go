@@ -1,9 +1,7 @@
 package cam
 
 import (
-	"log"
 	"os"
-	"path"
 	"time"
 )
 
@@ -17,7 +15,7 @@ type FileCam struct {
 }
 
 func (f *FileCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
-	defer ctx.WaitGroup.Done()
+	defer ctx.WG.Done()
 
 	for {
 
@@ -30,12 +28,9 @@ func (f *FileCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File
 			f.Info = stat
 
 			file, _ := os.Open(f.Path)
-
 			fn(f.Info, file)
-
 			file.Close()
 
-			log.Printf("\"%s\" was MODIFIED\n", path.Base(f.Path))
 		}
 
 		time.Sleep(500 * time.Millisecond)

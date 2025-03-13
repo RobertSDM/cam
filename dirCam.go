@@ -3,8 +3,9 @@ package cam
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
+
+	"github.com/RobertSDM/cam/utils"
 )
 
 type DirCam struct {
@@ -20,22 +21,18 @@ type DirCam struct {
 }
 
 func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
-	defer ctx.WaitGroup.Done()
+	defer ctx.WG.Done()
 
 	for {
-
 		_, err := os.Stat(d.Path)
 		if os.IsNotExist(err) {
-
 			if ctx.OnDirExclude != nil {
 				ctx.OnDirExclude(filepath.Base(d.Path))
 			}
-
 			return
 		}
-
 		paths, _ := os.ReadDir(d.Path)
-		var exists bool
+		paths = utils.GetOnlyFiles(paths)
 
 		notValidyCache, notStoredInCache := checkValidity(d.Cache, paths, d.Path)
 
@@ -47,34 +44,11 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 		d.Cache = excludeInvalidyCache(d.Cache, notValidyCache)
 
 		for _, m := range notStoredInCache {
-			if m.IsDir() {
-				continue
-			}
-
-			exists = false
-
 			newPath := filepath.Join(d.Path, m.Name())
-			if slices.Contains(d.Cache, newPath) {
-				exists = true
-			}
 
-			if !exists {
-				d.Cache = append(d.Cache, newPath)
+			d.Cache = append(d.Cache, newPath)
 
-				finfo, _ := os.Stat(newPath)
-				filecam := FileCam{
-					Path: newPath,
-					Info: finfo,
-				}
-
-				ctx.WaitGroup.Add(1)
-				go filecam.Watch(ctx, fn)
-
-				if ctx.OnFileCreation != nil {
-					ctx.OnFileCreation(finfo)
-				}
-			}
-
+			ctx.NewCamFromFile(newPath, fn)
 		}
 
 		time.Sleep(500 * time.Millisecond)
@@ -123,9 +97,6 @@ func checkValidity(files []string, paths []os.DirEntry, dirPath string) ([]strin
 		}
 
 		if i < len(paths) {
-			if paths[i].IsDir() {
-				continue
-			}
 			if !filesMap[filepath.Join(dirPath, paths[i].Name())] {
 				pms = append(pms, paths[i])
 			}
