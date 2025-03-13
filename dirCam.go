@@ -16,7 +16,7 @@ type DirCam struct {
 	Path string
 
 	// Cache of the registered files in the directory.
-	Files []string
+	Cache []string
 }
 
 func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
@@ -37,48 +37,29 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 		paths, _ := os.ReadDir(d.Path)
 		var exists bool
 
-		for i, file := range d.Files {
-			exists = false
+		notValidyCache, notStoredInCache := checkValidity(d.Cache, paths, d.Path)
 
-			var newPath string
-			for _, path := range paths {
-
-				if path.IsDir() {
-					continue
-				}
-
-				newPath = filepath.Join(d.Path, path.Name())
-
-				if newPath == file {
-					exists = true
-					break
-				}
-
+		for _, m := range notValidyCache {
+			if ctx.OnFileExclude != nil {
+				ctx.OnFileExclude(filepath.Base(m))
 			}
-
-			if !exists {
-				if ctx.OnFileExclude != nil {
-					ctx.OnFileExclude(filepath.Base(file))
-				}
-				d.Files = slices.Delete(d.Files, i, i+1)
-			}
-
 		}
+		d.Cache = excludeInvalidyCache(d.Cache, notValidyCache)
 
-		for _, path := range paths {
-			if path.IsDir() {
+		for _, m := range notStoredInCache {
+			if m.IsDir() {
 				continue
 			}
 
 			exists = false
 
-			newPath := filepath.Join(d.Path, path.Name())
-			if slices.Contains(d.Files, newPath) {
+			newPath := filepath.Join(d.Path, m.Name())
+			if slices.Contains(d.Cache, newPath) {
 				exists = true
 			}
 
 			if !exists {
-				d.Files = append(d.Files, newPath)
+				d.Cache = append(d.Cache, newPath)
 
 				finfo, _ := os.Stat(newPath)
 				filecam := FileCam{
@@ -98,4 +79,58 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+func excludeInvalidyCache(cache []string, invalid []string) []string {
+	// New String Slice
+	nss := make([]string, 0)
+	invalidMap := map[string]bool{}
+
+	for _, inv := range invalid {
+		invalidMap[inv] = true
+	}
+
+	for _, c := range cache {
+		if !invalidMap[c] {
+			nss = append(nss, c)
+		}
+	}
+
+	return nss
+}
+
+func checkValidity(files []string, paths []os.DirEntry, dirPath string) ([]string, []os.DirEntry) {
+	fms := make([]string, 0)
+	pms := make([]os.DirEntry, 0)
+
+	filesMap := map[string]bool{}
+	pathsMap := map[string]bool{}
+
+	for i := range max(len(files), len(paths)) {
+		if i < len(files) {
+			filesMap[files[i]] = true
+		}
+		if i < len(paths) {
+			pathsMap[paths[i].Name()] = true
+		}
+	}
+
+	for i := range max(len(files), len(paths)) {
+		if i < len(files) {
+			if !pathsMap[filepath.Base(files[i])] {
+				fms = append(fms, files[i])
+			}
+		}
+
+		if i < len(paths) {
+			if paths[i].IsDir() {
+				continue
+			}
+			if !filesMap[filepath.Join(dirPath, paths[i].Name())] {
+				pms = append(pms, paths[i])
+			}
+		}
+	}
+
+	return fms, pms
 }

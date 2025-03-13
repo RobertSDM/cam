@@ -15,12 +15,12 @@ type Cam interface {
 type CamContext struct {
 	// Excluded paths will not be monitored.
 	// Regex can also be informed.
-	Excluded []string
+	// Excluded []string
 
 	// Directorys that obrigatory will be monitored. It will bypass the excluded property.
 	//
 	// If the length is 0 (default), all the directories starting from the root directory will be watched, obeying the excluded property.
-	Included []string
+	// Included []string
 
 	// Group to add the cam created in goroutines.
 	WaitGroup *sync.WaitGroup
@@ -28,7 +28,7 @@ type CamContext struct {
 	OnFileExclude  func(filename string)
 	OnFileCreation func(stat os.FileInfo)
 
-	OnDirExclude  func(dirname string)
+	OnDirExclude func(dirname string)
 	// OnDirCreation func(os.FileInfo)
 }
 
@@ -98,7 +98,7 @@ func (c *CamContext) CreateDirCam(dirPath string, fn func(info os.FileInfo, file
 	cam := &DirCam{
 		Info:  dinfo,
 		Path:  dirPath,
-		Files: paths,
+		Cache: paths,
 	}
 
 	return cam
