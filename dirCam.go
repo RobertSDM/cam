@@ -20,19 +20,19 @@ type DirCam struct {
 	Cache []string
 }
 
-func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
+func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File), recursion bool) {
 	defer ctx.WG.Done()
 
 	for {
 		_, err := os.Stat(d.Path)
 		if os.IsNotExist(err) {
-			if ctx.OnDirExclude != nil {
-				ctx.OnDirExclude(filepath.Base(d.Path))
-			}
 			return
 		}
+
 		paths, _ := os.ReadDir(d.Path)
-		paths = utils.GetOnlyFiles(paths)
+		if !recursion {
+			paths = utils.GetOnlyFiles(paths)
+		}
 
 		notValidyCache, notStoredInCache := checkValidity(d.Cache, paths, d.Path)
 
@@ -45,13 +45,28 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 
 		for _, m := range notStoredInCache {
 			newPath := filepath.Join(d.Path, m.Name())
-			err := ctx.NewCamFromFile(newPath, fn)
-			if err != nil{
-				continue
+
+			stat, _ := os.Stat(newPath)
+
+			if !stat.IsDir() {
+				err := ctx.NewCamFromFile(newPath, fn)
+				if err != nil {
+					continue
+				}
+				if ctx.OnFileCreation != nil {
+					ctx.OnFileCreation(stat)
+				}
+			} else {
+				err := ctx.NewCamFromDir(newPath, fn, recursion)
+				if err != nil {
+					continue
+				}
+				if ctx.OnDirCreation != nil {
+					ctx.OnDirCreation(d.Path)
+				}
 			}
 
 			d.Cache = append(d.Cache, newPath)
-
 		}
 
 		time.Sleep(500 * time.Millisecond)
@@ -76,26 +91,26 @@ func excludeInvalidyCache(cache []string, invalid []string) []string {
 	return nss
 }
 
-func checkValidity(files []string, paths []os.DirEntry, dirPath string) ([]string, []os.DirEntry) {
+func checkValidity(cache []string, paths []os.DirEntry, dirPath string) ([]string, []os.DirEntry) {
 	fms := make([]string, 0)
 	pms := make([]os.DirEntry, 0)
 
 	filesMap := map[string]bool{}
 	pathsMap := map[string]bool{}
 
-	for i := range max(len(files), len(paths)) {
-		if i < len(files) {
-			filesMap[files[i]] = true
+	for i := range max(len(cache), len(paths)) {
+		if i < len(cache) {
+			filesMap[cache[i]] = true
 		}
 		if i < len(paths) {
 			pathsMap[paths[i].Name()] = true
 		}
 	}
 
-	for i := range max(len(files), len(paths)) {
-		if i < len(files) {
-			if !pathsMap[filepath.Base(files[i])] {
-				fms = append(fms, files[i])
+	for i := range max(len(cache), len(paths)) {
+		if i < len(cache) {
+			if !pathsMap[filepath.Base(cache[i])] {
+				fms = append(fms, cache[i])
 			}
 		}
 

@@ -2,7 +2,6 @@ package cam
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,7 +17,7 @@ type CamContext struct {
 	// Directorys that obrigatory will be monitored. It will bypass the excluded property.
 	//
 	// If the length is 0 (default), all the directories starting from the root directory will be watched, obeying the excluded property.
-	// Included []string
+	Included []string
 
 	// WaitGroup to add the cam created in goroutines.
 	WG *sync.WaitGroup
@@ -28,48 +27,34 @@ type CamContext struct {
 	// Event triggered when a file is deleted from a watched directory
 	OnFileCreation func(stat os.FileInfo)
 
-	// Event triggered When a watched directory is excluded
-	OnDirExclude func(dirname string)
-	// OnDirCreation func(os.FileInfo)
+	// Event triggered when a watched directory is excluded
+	OnDirExclude  func(dirname string)
+	// Event triggered when a directory is created in a watched directory
+	OnDirCreation func(dirname string)
+}
+
+// Create cams from the included paths
+func (c *CamContext) NewCams(recusion bool, fn func(info os.FileInfo, file *os.File)) error {
+	for _, inc := range c.Included {
+		info, err := os.Stat(inc)
+		if os.IsNotExist(err) {
+			return err
+		}
+
+		if info.IsDir() {
+			c.NewCamFromDir(inc, fn, recusion)
+		} else {
+			c.NewCamFromFile(inc, fn)
+		}
+	}
+
+	return nil
 }
 
 // Create and initializes the monitoring of a slice of files
 func (c *CamContext) NewCamsFromFiles(files []string, fn func(info os.FileInfo, file *os.File)) {
 	for _, file := range files {
-		finfo, err := os.Stat(file)
-
-		var valid bool
-		for _, ex := range c.Excluded {
-			match, _ := filepath.Match(ex, finfo.Name())
-
-			valid = match
-			if match {
-				break
-			}
-		}
-
-		if valid {
-			fmt.Println("no no")
-			continue
-		}
-
-		if os.IsNotExist(err) {
-			fmt.Printf("\"%s\" does not exist\n", filepath.Base(file))
-			continue
-		}
-
-		if finfo.IsDir() {
-			fmt.Println("the path provided is a dir path")
-			continue
-		}
-
-		filecam := &FileCam{
-			Info: finfo,
-			Path: file,
-		}
-
-		c.WG.Add(1)
-		go filecam.Watch(c, fn)
+		c.NewCamFromFile(file, fn)
 	}
 }
 
@@ -97,10 +82,6 @@ func (c *CamContext) NewCamFromFile(file string, fn func(info os.FileInfo, file 
 		Path: file,
 	}
 
-	if c.OnFileCreation != nil {
-		c.OnFileCreation(finfo)
-	}
-
 	c.WG.Add(1)
 	go filecam.Watch(c, fn)
 
@@ -108,7 +89,7 @@ func (c *CamContext) NewCamFromFile(file string, fn func(info os.FileInfo, file 
 }
 
 // Create initializes the monitoriment of a directory and all his files
-func (c *CamContext) NewCamFromDir(dirPath string, fn func(info os.FileInfo, file *os.File)) error {
+func (c *CamContext) NewCamFromDir(dirPath string, fn func(info os.FileInfo, file *os.File), recursion bool) error {
 	dinfo, err := os.Stat(dirPath)
 	if err != nil {
 		return err
@@ -118,8 +99,13 @@ func (c *CamContext) NewCamFromDir(dirPath string, fn func(info os.FileInfo, fil
 		return err
 	}
 
-	paths := utils.GetOnlyFilesInSlice(dirPath, entries)
+	var paths []string
+	paths = utils.GetOnlyFilesInStrSlice(dirPath, entries)
 	c.NewCamsFromFiles(paths, fn)
+
+	if recursion {
+		paths = utils.DirEntryToStrSlice(entries)
+	}
 
 	dircam := &DirCam{
 		Info:  dinfo,
@@ -128,7 +114,7 @@ func (c *CamContext) NewCamFromDir(dirPath string, fn func(info os.FileInfo, fil
 	}
 
 	c.WG.Add(1)
-	go dircam.Watch(c, fn)
+	go dircam.Watch(c, fn, recursion)
 
 	return nil
 }

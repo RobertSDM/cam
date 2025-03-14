@@ -19,7 +19,15 @@ func GetOnlyFiles(paths []os.DirEntry) []os.DirEntry {
 	return files
 }
 
-func GetOnlyFilesInSlice(dirPath string, entries []os.DirEntry) []string {
+func DirEntryToStrSlice(entries []os.DirEntry) []string {
+	strSlice := make([]string, 0, len(entries))
+	for _, e := range entries{
+		strSlice = append(strSlice, e.Name())
+	}
+	return strSlice
+}
+
+func GetOnlyFilesInStrSlice(dirPath string, entries []os.DirEntry) []string {
 	paths := make([]string, 0, len(entries))
 
 	var newPath string
