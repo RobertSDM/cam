@@ -1,3 +1,3 @@
-module github.com/RobertSDM/fwatcher
+module github.com/RobertSDM/cam
 
 go 1.24.0
