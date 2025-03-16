@@ -38,7 +38,7 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 		notValidyCache, notStoredInCache := checkValidity(d.Cache, paths, d.Path)
 
 		for _, entry := range notValidyCache {
-			if ctx.Events.OnFExclude != nil {
+			if ctx.Events != nil && ctx.Events.OnFExclude != nil {
 				ctx.Events.OnFExclude(filepath.Base(entry))
 			}
 		}
@@ -58,7 +58,7 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 				if err != nil {
 					continue
 				}
-				if ctx.Events.OnFCreation != nil {
+				if ctx.Events != nil && ctx.Events.OnFCreation != nil {
 					ctx.Events.OnFCreation(stat)
 				}
 			} else {
@@ -66,7 +66,7 @@ func (d *DirCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)
 				if err != nil {
 					continue
 				}
-				if ctx.Events.OnDCreation != nil {
+				if ctx.Events != nil && ctx.Events.OnDCreation != nil {
 					ctx.Events.OnDCreation(d.Path)
 				}
 			}

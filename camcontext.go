@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/RobertSDM/cam/utils"
 )
 
 type CamEvent struct {
@@ -105,6 +107,14 @@ func (c *CamContext) NewCamFromDir(dirPath string, fn func(info os.FileInfo, fil
 
 	paths, _ := os.ReadDir(dirPath)
 	files := []string{}
+
+	dircam := &DirCam{
+		Info:  dinfo,
+		Path:  dirPath,
+		Cache: utils.DirEntryToStrSlice(paths, dirPath),
+	}
+	c.WG.Add(1)
+	go dircam.Watch(c, fn, recursion)
 
 	for _, path := range paths {
 		fullpath := filepath.Join(dirPath, path.Name())
