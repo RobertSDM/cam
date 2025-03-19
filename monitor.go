@@ -2,7 +2,7 @@ package cam
 
 import (
 	"os"
-	"path/filepath"
+	"path"
 	"time"
 
 	"github.com/RobertSDM/cam/utils"
@@ -26,7 +26,7 @@ type DirCam struct {
 	Cache []*Cache
 }
 
-func (d *DirCam) Watch(c *Central, fn func(info os.FileInfo, file *os.File), recursion bool) {
+func (d *DirCam) Watch(c *Central, recursion bool) {
 	defer c.Context.WG.Done()
 
 	for {
@@ -49,9 +49,9 @@ func (d *DirCam) Watch(c *Central, fn func(info os.FileInfo, file *os.File), rec
 		for _, entry := range notStoredInCache {
 			stat, _ := os.Stat(entry.Path)
 			if stat.IsDir() {
-				c.CamWatchDir(entry.Path, fn, recursion)
+				c.camWatchDir(entry.Path, recursion)
 			} else {
-				c.CamWatchFile(entry.Path, fn)
+				c.camWatchFile(entry.Path)
 			}
 		}
 
@@ -66,9 +66,9 @@ func (d *DirCam) runEvents(events *CamEvent, notValidyCache []*Cache, notStoredI
 
 	for _, entry := range notValidyCache {
 		if entry.IsDir {
-			events.ExecEvent(E_DirDelete, entry.Path)
+			events.OnDirDelete(entry.Path)
 		} else {
-			events.ExecEvent(E_FileDelete, entry.Path)
+			events.OnFileDelete(entry.Path)
 		}
 	}
 
@@ -77,9 +77,9 @@ func (d *DirCam) runEvents(events *CamEvent, notValidyCache []*Cache, notStoredI
 		stat, _ := os.Stat(newPath)
 
 		if stat.IsDir() {
-			events.ExecEvent(E_DirCreate, newPath)
+			events.OnDirCreate(newPath)
 		} else {
-			events.ExecEvent(E_FileCreate, newPath)
+			events.OnFileCreate(newPath)
 		}
 	}
 }
@@ -122,7 +122,7 @@ func (d *DirCam) checkValidity(paths []os.DirEntry) ([]*Cache, []*Cache) {
 			filesMap[d.Cache[i].Path] = true
 		}
 		if i < len(paths) {
-			pathsMap[filepath.Join(d.Path, paths[i].Name())] = true
+			pathsMap[path.Join(d.Path, paths[i].Name())] = true
 		}
 	}
 
@@ -134,11 +134,11 @@ func (d *DirCam) checkValidity(paths []os.DirEntry) ([]*Cache, []*Cache) {
 		}
 
 		if i < len(paths) {
-			path := filepath.Join(d.Path, paths[i].Name())
-			if !filesMap[path] {
-				stat, _ := os.Stat(path)
+			_path := path.Join(d.Path, paths[i].Name())
+			if !filesMap[_path] {
+				stat, _ := os.Stat(_path)
 				notStoredInCache = append(notStoredInCache, &Cache{
-					Path:  path,
+					Path:  _path,
 					IsDir: stat.IsDir(),
 				})
 			}
@@ -157,12 +157,12 @@ type FileCam struct {
 	Path string
 }
 
-func (f *FileCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File)) {
+func (f *FileCam) Watch(ctx *CamContext) {
 	defer ctx.WG.Done()
 
 	if f.Info.Size() > 0 {
 		file, _ := os.Open(f.Path)
-		fn(f.Info, file)
+		ctx.Events.onFileModify(f.Path, file)
 		file.Close()
 	}
 
@@ -176,7 +176,7 @@ func (f *FileCam) Watch(ctx *CamContext, fn func(info os.FileInfo, file *os.File
 			f.Info = stat
 
 			file, _ := os.Open(f.Path)
-			fn(f.Info, file)
+			ctx.Events.onFileModify(f.Path, file)
 			file.Close()
 		}
 
