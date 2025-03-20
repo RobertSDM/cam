@@ -10,13 +10,6 @@ type Cam interface {
 	Watch(ctx *CamContext, fn func(os.FileInfo, *os.File))
 }
 
-const (
-	E_FileCreate = iota
-	E_FileDelete
-	E_DirCreate
-	E_DirDelete
-)
-
 type CamContext struct {
 	// Excluded paths will not be monitored.
 	// Regex can also be informed.
@@ -37,45 +30,38 @@ type CamEvent struct {
 	OnFDelete func(path string)
 	// Event triggered when a file is deleted from a watched directory
 	OnFCreate func(path string)
-
 	// Event triggered when a watched directory is excluded
 	OnDDelete func(path string)
 	// Event triggered when a directory is created in a watched directory
 	OnDCreate func(path string)
+	onFModify func(path string, file *os.File)
 }
 
-func (e *CamEvent) ExecEvent(event int, path string) {
-	switch event {
-	case E_DirCreate:
-		e.onDirCreate(path)
-	case E_FileCreate:
-		e.onFileCreate(path)
-	case E_DirDelete:
-		e.onDirDelete(path)
-	case E_FileDelete:
-		e.onFileDelete(path)
+func (e *CamEvent) onFileModify(path string, file *os.File) {
+	if e.onFModify != nil {
+		e.onFModify(path, file)
 	}
 }
 
-func (e *CamEvent) onFileCreate(path string) {
+func (e *CamEvent) OnFileCreate(path string) {
 	if e.OnFCreate != nil {
 		e.OnFCreate(path)
 	}
 }
 
-func (e *CamEvent) onFileDelete(path string) {
+func (e *CamEvent) OnFileDelete(path string) {
 	if e.OnFDelete != nil {
 		e.OnFDelete(path)
 	}
 }
 
-func (e *CamEvent) onDirCreate(path string) {
+func (e *CamEvent) OnDirCreate(path string) {
 	if e.OnDCreate != nil {
 		e.OnDCreate(path)
 	}
 }
 
-func (e *CamEvent) onDirDelete(path string) {
+func (e *CamEvent) OnDirDelete(path string) {
 	if e.OnDDelete != nil {
 		e.OnDDelete(path)
 	}

@@ -3,7 +3,7 @@ package cam
 import (
 	"errors"
 	"os"
-	"path/filepath"
+	"path"
 
 	"github.com/RobertSDM/cam/utils"
 )
@@ -12,30 +12,29 @@ type Central struct {
 	Context *CamContext
 }
 
-// Create cams from the included paths
-func (c *Central) StartMonitoring(recusion bool, fn func(info os.FileInfo, file *os.File)) error {
-	if len(c.Context.Included) == 0 {
-		root, _ := os.Getwd()
-		c.Context.Included = append(c.Context.Included, root)
+func (c *Central) NewCam(_path string, recursion bool, handle func(filepath string, file *os.File)) error {
+	stat, err := os.Stat(_path)
+	if err != nil {
+		return err
 	}
 
-	for _, inc := range c.Context.Included {
-		info, err := os.Stat(inc)
-		if os.IsNotExist(err) {
-			return err
-		}
+	if c.Context.Events == nil {
+		c.Context.Events = &CamEvent{}
+	}
 
-		if info.IsDir() {
-			c.CamWatchDir(inc, fn, recusion)
-		} else {
-			c.CamWatchFile(inc, fn)
-		}
+	c.Context.Events.onFModify = handle
+	c.Context.Included = append(c.Context.Included, _path)
+
+	if stat.IsDir() {
+		c.camWatchDir(_path, recursion)
+	} else {
+		c.camWatchFile(_path)
 	}
 
 	return nil
 }
 
-func (c *Central) CamWatchFile(file string, fn func(info os.FileInfo, file *os.File)) error {
+func (c *Central) camWatchFile(file string) error {
 	finfo, err := os.Stat(file)
 
 	if os.IsNotExist(err) {
@@ -46,9 +45,9 @@ func (c *Central) CamWatchFile(file string, fn func(info os.FileInfo, file *os.F
 		return errors.New("the path provided is not a file path")
 	}
 
-	isIn := utils.IsInRegexSlice(c.Context.Excluded, finfo.Name())
-	if isIn {
-		return errors.New("the path is in the excluded paths")
+	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, file)
+	if !allowed {
+		return errors.New("the path is not allowed")
 	}
 
 	filecam := &FileCam{
@@ -57,28 +56,28 @@ func (c *Central) CamWatchFile(file string, fn func(info os.FileInfo, file *os.F
 	}
 
 	c.Context.WG.Add(1)
-	go filecam.Watch(c.Context, fn)
+	go filecam.Watch(c.Context)
 
 	return nil
 }
 
 // Create and initializes the monitoring of a files
-func (c *Central) CamsWatchFiles(files []string, fn func(info os.FileInfo, file *os.File)) {
+func (c *Central) camsWatchFiles(files []string) {
 	for _, file := range files {
-		c.CamWatchFile(file, fn)
+		c.camWatchFile(file)
 	}
 }
 
 // Create initializes the monitoriment of a directory and all his files
-func (c *Central) CamWatchDir(dirPath string, fn func(info os.FileInfo, file *os.File), recursion bool) error {
+func (c *Central) camWatchDir(dirPath string, recursion bool) error {
 	dinfo, err := os.Stat(dirPath)
 	if err != nil {
 		return err
 	}
 
-	isInExcluded := utils.IsInRegexSlice(c.Context.Excluded, dinfo.Name())
-	if isInExcluded {
-		return errors.New("the file is not valid")
+	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, dirPath)
+	if !allowed {
+		return errors.New("the path is not allowed")
 	}
 
 	paths, _ := os.ReadDir(dirPath)
@@ -102,20 +101,20 @@ func (c *Central) CamWatchDir(dirPath string, fn func(info os.FileInfo, file *os
 	}
 
 	c.Context.WG.Add(1)
-	go dircam.Watch(c, fn, recursion)
+	go dircam.Watch(c, recursion)
 
-	for _, path := range paths {
-		fullpath := filepath.Join(dirPath, path.Name())
+	for _, _path := range paths {
+		fullpath := path.Join(dirPath, _path.Name())
 		stat, _ := os.Stat(fullpath)
 
 		if !stat.IsDir() {
 			files = append(files, fullpath)
 		} else if recursion {
-			c.CamWatchDir(fullpath, fn, recursion)
+			c.camWatchDir(fullpath, recursion)
 		}
 	}
 
-	c.CamsWatchFiles(files, fn)
+	c.camsWatchFiles(files)
 
 	return nil
 }
