@@ -4,39 +4,57 @@ import (
 	"errors"
 	"os"
 	"path"
+	"sync"
 
 	"github.com/RobertSDM/cam/utils"
 )
 
 type Central struct {
-	Context *CamContext
+	Context *Context
+
+	// Events are functions that will be executed in a specific moment
+	Events *Events
+
+	// WaitGroup to add the cam created in goroutines.
+	WG *sync.WaitGroup
 }
 
-func (c *Central) NewCam(_path string, recursion bool, handle func(filepath string, file *os.File)) error {
-	stat, err := os.Stat(_path)
-	if err != nil {
-		return err
+// Create a new cam wathing a file or a folder
+func (c *Central) NewCams(_paths []string, recursion bool, handle func(filepath string, file *os.File)) error {
+	if c.WG == nil {
+		return errors.New("a WaitGroup must be set")
 	}
 
-	if c.Context.Events == nil {
-		c.Context.Events = &CamEvent{}
-	}
+	for _, _path := range _paths {
+		stat, err := os.Stat(_path)
+		if err != nil {
+			return err
+		}
 
-	c.Context.Events.onFModify = handle
-	c.Context.Included = append(c.Context.Included, _path)
+		if c.Events == nil {
+			c.Events = &Events{}
+		}
 
-	if stat.IsDir() {
-		c.camWatchDir(_path, recursion)
-	} else {
-		c.camWatchFile(_path)
+		if c.Context == nil {
+			c.Context = &Context{}
+		}
+
+		c.Events.fileModify = handle
+		c.Context.Included = append(c.Context.Included, _path)
+
+		if stat.IsDir() {
+			c.newFolderCam(_path, recursion)
+		} else {
+			c.newFileCam(_path)
+		}
 	}
 
 	return nil
 }
 
-func (c *Central) camWatchFile(file string) error {
-	finfo, err := os.Stat(file)
-
+// Starts the goroutine to watch the file
+func (c *Central) newFileCam(filepath string) error {
+	finfo, err := os.Stat(filepath)
 	if os.IsNotExist(err) {
 		return err
 	}
@@ -45,31 +63,31 @@ func (c *Central) camWatchFile(file string) error {
 		return errors.New("the path provided is not a file path")
 	}
 
-	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, file)
+	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, filepath)
 	if !allowed {
 		return errors.New("the path is not allowed")
 	}
 
 	filecam := &FileCam{
-		Info: finfo,
-		Path: file,
+		info: finfo,
+		path: filepath,
 	}
 
-	c.Context.WG.Add(1)
-	go filecam.Watch(c.Context)
+	c.WG.Add(1)
+	go filecam.Watch(c)
 
 	return nil
 }
 
-// Create and initializes the monitoring of a files
-func (c *Central) camsWatchFiles(files []string) {
+// The same as [camWatchFile] but iterates through a slice of file paths
+func (c *Central) newFileCams(files []string) {
 	for _, file := range files {
-		c.camWatchFile(file)
+		c.newFileCam(file)
 	}
 }
 
-// Create initializes the monitoriment of a directory and all his files
-func (c *Central) camWatchDir(dirPath string, recursion bool) error {
+// Starts the goroutine to monitor the folder
+func (c *Central) newFolderCam(dirPath string, recursion bool) error {
 	dinfo, err := os.Stat(dirPath)
 	if err != nil {
 		return err
@@ -80,28 +98,33 @@ func (c *Central) camWatchDir(dirPath string, recursion bool) error {
 		return errors.New("the path is not allowed")
 	}
 
-	paths, _ := os.ReadDir(dirPath)
-	files := []string{}
+	paths, err := os.ReadDir(dirPath)
+	if err != nil {
+		return err
+	}
 
-	var cache []*Cache
-	strCache := utils.DirEntryToStrSlice(paths, dirPath)
+	files := make([]string, 0)
+	cache := make([]*Cache, 0)
+
+	strCache := utils.DirEntriesToStrSlice(paths, dirPath)
 
 	for _, str := range strCache {
 		stat, _ := os.Stat(str)
 		cache = append(cache, &Cache{
-			Path:  str,
-			IsDir: stat.IsDir(),
+			path:  str,
+			isDir: stat.IsDir(),
 		})
 	}
 
-	dircam := &DirCam{
-		Info:  dinfo,
-		Path:  dirPath,
-		Cache: cache,
+	dircam := &FolderCam{
+		info:      dinfo,
+		path:      dirPath,
+		cache:     cache,
+		recursion: recursion,
 	}
 
-	c.Context.WG.Add(1)
-	go dircam.Watch(c, recursion)
+	c.WG.Add(1)
+	go dircam.Watch(c)
 
 	for _, _path := range paths {
 		fullpath := path.Join(dirPath, _path.Name())
@@ -110,11 +133,11 @@ func (c *Central) camWatchDir(dirPath string, recursion bool) error {
 		if !stat.IsDir() {
 			files = append(files, fullpath)
 		} else if recursion {
-			c.camWatchDir(fullpath, recursion)
+			c.newFolderCam(fullpath, recursion)
 		}
 	}
 
-	c.camsWatchFiles(files)
+	c.newFileCams(files)
 
 	return nil
 }

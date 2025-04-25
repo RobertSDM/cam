@@ -9,17 +9,20 @@ Cam is a go library for file watch recursively. It offer to you events that will
 Simple usage
 
 ```go
-wg := &sync.WaitGroup{}
+func main() {
+	wg := &sync.WaitGroup{}
 
-central := &cam.Central{
-    Context: &cam.CamContext{
-        WG:       wg,
-    },
+	central := &cam.Central{
+		WG: wg,
+	}
+
+	err := central.NewCams([]string{"src"}, true, modhandler)
+	if err != nil {
+		panic(err)
+	}
+
+	wg.Wait()
 }
-
-central.NewCam("src", true, handle)
-
-wg.Wait()
 ```
 
 ## Why CAM?
