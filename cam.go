@@ -9,7 +9,7 @@ type Cam interface {
 	Watch(ctx *Central)
 }
 
-type Context struct {
+type context struct {
 	// Excluded paths will not be monitored.
 	// Regex can also be informed.
 	Excluded []string
@@ -18,7 +18,7 @@ type Context struct {
 	Included []string
 }
 
-type Events struct {
+type events struct {
 	// Event triggered when a file is created in a watched directory
 	FileDelete func(path string)
 
@@ -35,31 +35,31 @@ type Events struct {
 	fileModify func(path string, file *os.File)
 }
 
-func (e *Events) onFileModify(path string, file *os.File) {
+func (e *events) onFileModify(path string, file *os.File) {
 	if e.fileModify != nil {
 		e.fileModify(path, file)
 	}
 }
 
-func (e *Events) OnFileCreate(path string) {
+func (e *events) OnFileCreate(path string) {
 	if e.FieCreate != nil {
 		e.FieCreate(path)
 	}
 }
 
-func (e *Events) OnFileDelete(path string) {
+func (e *events) OnFileDelete(path string) {
 	if e.FileDelete != nil {
 		e.FileDelete(path)
 	}
 }
 
-func (e *Events) OnDirCreate(path string) {
+func (e *events) OnDirCreate(path string) {
 	if e.FolderCreate != nil {
 		e.FolderCreate(path)
 	}
 }
 
-func (e *Events) OnDirDelete(path string) {
+func (e *events) OnDirDelete(path string) {
 	if e.FolderDelete != nil {
 		e.FolderDelete(path)
 	}

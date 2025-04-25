@@ -10,10 +10,10 @@ import (
 )
 
 type Central struct {
-	Context *Context
+	context *context
 
-	// Events are functions that will be executed in a specific moment
-	Events *Events
+	// events are functions that will be executed in a specific moment
+	events *events
 
 	// WaitGroup to add the cam created in goroutines.
 	WG *sync.WaitGroup
@@ -25,22 +25,25 @@ func (c *Central) NewCams(_paths []string, recursion bool, handle func(filepath 
 		return errors.New("a WaitGroup must be set")
 	}
 
+	if c.events == nil {
+		c.events = &events{}
+	}
+
+	if c.context == nil {
+		c.context = &context{}
+	}
+
+	if c.events.fileModify == nil {
+		c.events.fileModify = handle
+	}
+
 	for _, _path := range _paths {
 		stat, err := os.Stat(_path)
 		if err != nil {
 			return err
 		}
 
-		if c.Events == nil {
-			c.Events = &Events{}
-		}
-
-		if c.Context == nil {
-			c.Context = &Context{}
-		}
-
-		c.Events.fileModify = handle
-		c.Context.Included = append(c.Context.Included, _path)
+		c.context.Included = append(c.context.Included, _path)
 
 		if stat.IsDir() {
 			c.newFolderCam(_path, recursion)
@@ -63,7 +66,7 @@ func (c *Central) newFileCam(filepath string) error {
 		return errors.New("the path provided is not a file path")
 	}
 
-	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, filepath)
+	allowed := utils.VerifyConditions(c.context.Included, c.context.Excluded, filepath)
 	if !allowed {
 		return errors.New("the path is not allowed")
 	}
@@ -93,7 +96,7 @@ func (c *Central) newFolderCam(dirPath string, recursion bool) error {
 		return err
 	}
 
-	allowed := utils.VerifyConditions(c.Context.Included, c.Context.Excluded, dirPath)
+	allowed := utils.VerifyConditions(c.context.Included, c.context.Excluded, dirPath)
 	if !allowed {
 		return errors.New("the path is not allowed")
 	}

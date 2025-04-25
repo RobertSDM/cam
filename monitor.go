@@ -47,7 +47,7 @@ func (d *FolderCam) Watch(c *Central) {
 		notValidyCache, notStoredInCache := d.checkValidity(paths)
 
 		d.updateCache(notValidyCache, notStoredInCache)
-		d.runEvents(c.Events, notValidyCache, notStoredInCache)
+		d.runEvents(c.events, notValidyCache, notStoredInCache)
 
 		for _, entry := range notStoredInCache {
 			stat, _ := os.Stat(entry.path)
@@ -62,7 +62,7 @@ func (d *FolderCam) Watch(c *Central) {
 	}
 }
 
-func (d *FolderCam) runEvents(events *Events, notValidyCache []*Cache, notStoredInCache []*Cache) {
+func (d *FolderCam) runEvents(events *events, notValidyCache []*Cache, notStoredInCache []*Cache) {
 	if events == nil {
 		return
 	}
@@ -164,7 +164,7 @@ func (f *FileCam) Watch(c *Central) {
 
 	if f.info.Size() > 0 {
 		file, _ := os.Open(f.path)
-		c.Events.onFileModify(f.path, file)
+		c.events.onFileModify(f.path, file)
 		file.Close()
 	}
 
@@ -178,7 +178,7 @@ func (f *FileCam) Watch(c *Central) {
 			f.info = stat
 
 			file, _ := os.Open(f.path)
-			c.Events.onFileModify(f.path, file)
+			c.events.onFileModify(f.path, file)
 			file.Close()
 		}
 
