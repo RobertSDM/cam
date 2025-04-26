@@ -4,15 +4,14 @@ import (
 	"os"
 	"path"
 	"time"
-
-	"github.com/RobertSDM/cam/utils"
 )
 
 type Cache struct {
-	isDir bool
+	cam Cam
 
-	// The file or folder path from a directory that is being watched
 	path string
+
+	isDir bool
 }
 
 type FolderCam struct {
@@ -23,46 +22,104 @@ type FolderCam struct {
 	// The dir path the cam is monitoring
 	path string
 
-	// cache of the registered files in the directory.
+	// Registry of files and folders present in the folder being watched
+	//
+	// If some of the files or folders change, the cache will be updated
+	// with the new content
 	cache []*Cache
 
+	// A flag showing if folders inside this folder will be watched
 	recursion bool
+
+	// Events
+	events *Events
+
+	// A channel that will receive a bool, when the Cam.Close() method is
+	// called
+	done chan bool
 }
 
-func (d *FolderCam) Watch(c *Central) {
-	defer c.WG.Done()
-
+func (f *FolderCam) Watch() {
 	for {
-		_, err := os.Stat(d.path)
-		if os.IsNotExist(err) {
+		select {
+		case <-f.done:
+			for _, c := range f.cache {
+				c.cam.Close()
+			}
+			return
+		case <-time.After(100 * time.Millisecond):
+
+		}
+
+		_, err := os.Stat(f.path)
+		if err != nil {
+			for _, c := range f.cache {
+				c.cam.Close()
+			}
 			return
 		}
 
-		paths, _ := os.ReadDir(d.path)
-
-		if !d.recursion {
-			paths = utils.GetOnlyFiles(paths)
+		content, err := os.ReadDir(f.path)
+		if err != nil {
+			for _, c := range f.cache {
+				c.cam.Close()
+			}
+			return
 		}
 
-		notValidyCache, notStoredInCache := d.checkValidity(paths)
+		if !f.recursion {
+			content = getOnlyFiles(content)
+		}
 
-		d.updateCache(notValidyCache, notStoredInCache)
-		d.runEvents(c.events, notValidyCache, notStoredInCache)
+		notValidyCache, notInCache := f.checkCacheValidity(content)
 
-		for _, entry := range notStoredInCache {
-			stat, _ := os.Stat(entry.path)
-			if stat.IsDir() {
-				c.newFolderCam(entry.path, d.recursion)
+		f.cache = f.excludeInvalidyCache(notValidyCache)
+		f.runEvents(f.events, notValidyCache, notInCache)
+
+		cache := make([]*Cache, 0)
+		for _, p := range notInCache {
+			info, _ := os.Stat(p)
+
+			if info.IsDir() {
+				folder, err := NewFolderCam(p, f.recursion, f.events)
+				if err != nil {
+					for _, c := range f.cache {
+						c.cam.Close()
+					}
+					return
+				}
+				cache = append(cache, &Cache{
+					cam:   folder,
+					path:  p,
+					isDir: info.IsDir(),
+				})
+				go folder.Watch()
 			} else {
-				c.newFileCam(entry.path)
+				file, err := NewFileCam(p, f.events.onFileModify)
+				if err != nil {
+					for _, c := range f.cache {
+						c.cam.Close()
+					}
+					return
+				}
+				cache = append(cache, &Cache{
+					cam:   file,
+					path:  p,
+					isDir: info.IsDir(),
+				})
+				go file.Watch()
 			}
 		}
-
-		time.Sleep(500 * time.Millisecond)
+		f.cache = append(f.cache, cache...)
 	}
 }
 
-func (d *FolderCam) runEvents(events *events, notValidyCache []*Cache, notStoredInCache []*Cache) {
+func (f *FolderCam) Close() error {
+	close(f.done)
+	return nil
+}
+
+func (f *FolderCam) runEvents(events *Events, notValidyCache []*Cache, notStoredInCache []string) {
 	if events == nil {
 		return
 	}
@@ -75,74 +132,63 @@ func (d *FolderCam) runEvents(events *events, notValidyCache []*Cache, notStored
 		}
 	}
 
-	for _, entry := range notStoredInCache {
-		newPath := entry.path
-		stat, _ := os.Stat(newPath)
+	for _, p := range notStoredInCache {
+		stat, _ := os.Stat(p)
 
 		if stat.IsDir() {
-			events.OnDirCreate(newPath)
+			events.OnDirCreate(p)
 		} else {
-			events.OnFileCreate(newPath)
+			events.OnFileCreate(p)
 		}
 	}
 }
 
-func (d *FolderCam) updateCache(notValidyCache []*Cache, notStoredInCache []*Cache) {
-	d.cache = d.excludeInvalidyCache(notValidyCache)
-	d.cache = append(d.cache, notStoredInCache...)
-}
-
-func (d *FolderCam) excludeInvalidyCache(invalid []*Cache) []*Cache {
-	// New String Slice
-	nss := make([]*Cache, 0)
+func (f *FolderCam) excludeInvalidyCache(invalid []*Cache) []*Cache {
+	newCache := make([]*Cache, 0)
 	invalidMap := map[string]bool{}
 
 	for _, inv := range invalid {
 		invalidMap[inv.path] = true
 	}
 
-	for _, c := range d.cache {
+	for _, c := range f.cache {
 		if !invalidMap[c.path] {
-			nss = append(nss, c)
+			newCache = append(newCache, c)
 		}
 	}
 
-	return nss
+	return newCache
 }
 
-func (d *FolderCam) checkValidity(paths []os.DirEntry) ([]*Cache, []*Cache) {
+func (f *FolderCam) checkCacheValidity(content []os.DirEntry) ([]*Cache, []string) {
 	notValidyInCache := make([]*Cache, 0)
-	notStoredInCache := make([]*Cache, 0)
+	notStoredInCache := make([]string, 0)
 
-	filesMap := map[string]bool{}
-	pathsMap := map[string]bool{}
+	cacheMap := make(map[string]bool)
+	contentMap := make(map[string]bool)
 
-	maxlen := max(len(d.cache), len(paths))
+	maxlen := max(len(f.cache), len(content))
 
 	for i := range maxlen {
-		if i < len(d.cache) {
-			filesMap[d.cache[i].path] = true
+		if i < len(f.cache) {
+			cacheMap[f.cache[i].path] = true
 		}
-		if i < len(paths) {
-			pathsMap[path.Join(d.path, paths[i].Name())] = true
+		if i < len(content) {
+			contentMap[path.Join(f.path, content[i].Name())] = true
 		}
 	}
 
 	for i := range maxlen {
-		if i < len(d.cache) {
-			if !pathsMap[d.cache[i].path] {
-				notValidyInCache = append(notValidyInCache, d.cache[i])
+		if i < len(f.cache) {
+			if !contentMap[f.cache[i].path] {
+				notValidyInCache = append(notValidyInCache, f.cache[i])
 			}
 		}
 
-		if i < len(paths) {
-			_path := path.Join(d.path, paths[i].Name())
-			if !filesMap[_path] {
-				stat, _ := os.Stat(_path)
-				notStoredInCache = append(notStoredInCache, &Cache{
-					path:  _path,
-					isDir: stat.IsDir(),
-				})
+		if i < len(content) {
+			_path := path.Join(f.path, content[i].Name())
+			if !cacheMap[_path] {
+				notStoredInCache = append(notStoredInCache, _path)
 			}
 		}
 	}
@@ -157,31 +203,55 @@ type FileCam struct {
 
 	// The file path the cam is monitoring
 	path string
+
+	// This callback will be executed every time a change is made in the
+	// watched file
+	handler func(p string, f *os.File)
+
+	// A channel that will receive a bool, when the Cam.Close() method is
+	// called
+	done chan bool
 }
 
-func (f *FileCam) Watch(c *Central) {
-	defer c.WG.Done()
-
+func (f *FileCam) Watch() {
 	if f.info.Size() > 0 {
-		file, _ := os.Open(f.path)
-		c.events.onFileModify(f.path, file)
+		file, err := os.Open(f.path)
+		if err != nil {
+			return
+		}
+		f.handler(f.path, file)
 		file.Close()
 	}
 
 	for {
+		select {
+		case <-f.done:
+			return
+		case <-time.After(100 * time.Millisecond):
+
+		}
+
 		stat, err := os.Stat(f.path)
 		if err != nil {
 			return
 		}
 
-		if stat.ModTime() != f.info.ModTime() {
+		if stat.ModTime() != f.info.ModTime() && stat.Size() != f.info.Size() {
 			f.info = stat
 
-			file, _ := os.Open(f.path)
-			c.events.onFileModify(f.path, file)
+			file, err := os.Open(f.path)
+			if err != nil {
+				return
+			}
+			f.handler(f.path, file)
 			file.Close()
 		}
 
-		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+func (f *FileCam) Close() error {
+	close(f.done)
+
+	return nil
 }

@@ -1,4 +1,4 @@
-package utils
+package cam
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-func GetOnlyFiles(paths []os.DirEntry) []os.DirEntry {
+func getOnlyFiles(paths []os.DirEntry) []os.DirEntry {
 	files := make([]os.DirEntry, 0, len(paths))
 
 	for _, path := range paths {
@@ -20,10 +20,10 @@ func GetOnlyFiles(paths []os.DirEntry) []os.DirEntry {
 	return files
 }
 
-func DirEntriesToStrSlice(entries []os.DirEntry, dirPath string) []string {
+func dirEntryToString(entries []os.DirEntry, dp string) []string {
 	strSlice := make([]string, 0, len(entries))
 	for _, e := range entries {
-		strSlice = append(strSlice, path.Join(dirPath, e.Name()))
+		strSlice = append(strSlice, path.Join(dp, e.Name()))
 	}
 	return strSlice
 }
