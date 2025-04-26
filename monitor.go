@@ -7,10 +7,8 @@ import (
 )
 
 type Cache struct {
-	cam Cam
-
-	path string
-
+	cam   Cam
+	path  string
 	isDir bool
 }
 
@@ -37,33 +35,23 @@ type FolderCam struct {
 	// A channel that will receive a bool, when the Cam.Close() method is
 	// called
 	done chan bool
+
+	excluded []string
 }
 
 func (f *FolderCam) Watch() {
 	for {
 		select {
 		case <-f.done:
-			for _, c := range f.cache {
-				c.cam.Close()
-			}
+			f.closeCache()
 			return
 		case <-time.After(100 * time.Millisecond):
 
 		}
 
-		_, err := os.Stat(f.path)
-		if err != nil {
-			for _, c := range f.cache {
-				c.cam.Close()
-			}
-			return
-		}
-
 		content, err := os.ReadDir(f.path)
 		if err != nil {
-			for _, c := range f.cache {
-				c.cam.Close()
-			}
+			f.closeCache()
 			return
 		}
 
@@ -74,35 +62,28 @@ func (f *FolderCam) Watch() {
 		notValidyCache, notInCache := f.checkCacheValidity(content)
 
 		f.cache = f.excludeInvalidyCache(notValidyCache)
-		f.runEvents(f.events, notValidyCache, notInCache)
+		f.runEvents(notValidyCache, notInCache)
 
-		cache := make([]*Cache, 0)
 		for _, p := range notInCache {
 			info, _ := os.Stat(p)
 
 			if info.IsDir() {
-				folder, err := NewFolderCam(p, f.recursion, f.events)
+				folder, err := NewFolderCam(p, f.recursion, f.events, f.excluded)
 				if err != nil {
-					for _, c := range f.cache {
-						c.cam.Close()
-					}
-					return
+					continue
 				}
-				cache = append(cache, &Cache{
+				f.cache = append(f.cache, &Cache{
 					cam:   folder,
 					path:  p,
 					isDir: info.IsDir(),
 				})
 				go folder.Watch()
 			} else {
-				file, err := NewFileCam(p, f.events.onFileModify)
+				file, err := NewFileCam(p, f.events.FileModify)
 				if err != nil {
-					for _, c := range f.cache {
-						c.cam.Close()
-					}
-					return
+					continue
 				}
-				cache = append(cache, &Cache{
+				f.cache = append(f.cache, &Cache{
 					cam:   file,
 					path:  p,
 					isDir: info.IsDir(),
@@ -110,7 +91,6 @@ func (f *FolderCam) Watch() {
 				go file.Watch()
 			}
 		}
-		f.cache = append(f.cache, cache...)
 	}
 }
 
@@ -119,16 +99,23 @@ func (f *FolderCam) Close() error {
 	return nil
 }
 
-func (f *FolderCam) runEvents(events *Events, notValidyCache []*Cache, notStoredInCache []string) {
-	if events == nil {
+func (f *FolderCam) closeCache() {
+	f.runEvents(f.cache, []string{})
+	for _, c := range f.cache {
+		c.cam.Close()
+	}
+}
+
+func (f *FolderCam) runEvents(notValidyCache []*Cache, notStoredInCache []string) {
+	if f.events == nil {
 		return
 	}
 
-	for _, entry := range notValidyCache {
-		if entry.isDir {
-			events.OnDirDelete(entry.path)
+	for _, c := range notValidyCache {
+		if c.isDir {
+			f.events.OnDirDelete(c.path)
 		} else {
-			events.OnFileDelete(entry.path)
+			f.events.OnFileDelete(c.path)
 		}
 	}
 
@@ -136,9 +123,9 @@ func (f *FolderCam) runEvents(events *Events, notValidyCache []*Cache, notStored
 		stat, _ := os.Stat(p)
 
 		if stat.IsDir() {
-			events.OnDirCreate(p)
+			f.events.OnDirCreate(p)
 		} else {
-			events.OnFileCreate(p)
+			f.events.OnFileCreate(p)
 		}
 	}
 }
@@ -187,7 +174,7 @@ func (f *FolderCam) checkCacheValidity(content []os.DirEntry) ([]*Cache, []strin
 
 		if i < len(content) {
 			_path := path.Join(f.path, content[i].Name())
-			if !cacheMap[_path] {
+			if !cacheMap[_path] && !isInRegexSlice(f.excluded, _path) {
 				notStoredInCache = append(notStoredInCache, _path)
 			}
 		}
@@ -206,6 +193,9 @@ type FileCam struct {
 
 	// This callback will be executed every time a change is made in the
 	// watched file
+	//
+	// The file must be closed by the callback, or it will remain open
+	// consuming memory
 	handler func(p string, f *os.File)
 
 	// A channel that will receive a bool, when the Cam.Close() method is
@@ -219,8 +209,7 @@ func (f *FileCam) Watch() {
 		if err != nil {
 			return
 		}
-		f.handler(f.path, file)
-		file.Close()
+		f.handler(f.path, file) // the caller handle the file closing
 	}
 
 	for {
@@ -243,8 +232,7 @@ func (f *FileCam) Watch() {
 			if err != nil {
 				return
 			}
-			f.handler(f.path, file)
-			file.Close()
+			f.handler(f.path, file) // the caller handle the file closing
 		}
 
 	}

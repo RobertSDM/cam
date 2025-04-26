@@ -2,7 +2,6 @@ package cam
 
 import (
 	"os"
-	"path"
 	"path/filepath"
 )
 
@@ -20,29 +19,7 @@ func getOnlyFiles(paths []os.DirEntry) []os.DirEntry {
 	return files
 }
 
-func dirEntryToString(entries []os.DirEntry, dp string) []string {
-	strSlice := make([]string, 0, len(entries))
-	for _, e := range entries {
-		strSlice = append(strSlice, path.Join(dp, e.Name()))
-	}
-	return strSlice
-}
-
-func GetOnlyFilesInStrSlice(entries []os.DirEntry, dirPath string) []string {
-	paths := make([]string, 0, len(entries))
-
-	var newPath string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		newPath = path.Join(dirPath, entry.Name())
-		paths = append(paths, newPath)
-	}
-	return paths
-}
-
-func IsInRegexSlice(regexSlice []string, target string) bool {
+func isInRegexSlice(regexSlice []string, target string) bool {
 	for _, ex := range regexSlice {
 		match, _ := filepath.Match(ex, target)
 
@@ -52,15 +29,4 @@ func IsInRegexSlice(regexSlice []string, target string) bool {
 	}
 
 	return false
-}
-
-func VerifyConditions(included []string, excluded []string, _path string) bool {
-	if len(included) > 0 {
-		isInIncluded := IsInRegexSlice(included, _path)
-		if isInIncluded {
-			return true
-		}
-	}
-
-	return !IsInRegexSlice(excluded, _path)
 }

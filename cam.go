@@ -14,12 +14,6 @@ type Cam interface {
 	Watch()
 }
 
-// type context struct {
-// 	// Excluded paths will not be monitored.
-// 	// Regex can also be informed.
-// 	Excluded []string
-// }
-
 type Events struct {
 	// Event triggered when a file is created in a watched directory
 	FileDelete func(path string)
@@ -33,14 +27,12 @@ type Events struct {
 	// Event triggered when a directory is created in a watched directory
 	FolderCreate func(path string)
 
-	// Event triggered when a file is modified
+	// This callback will be executed every time a change is made in the
+	// watched file
+	//
+	// The file must be closed by the callback, or it will remain open
+	// consuming memory
 	FileModify func(path string, file *os.File)
-}
-
-func (e *Events) onFileModify(path string, file *os.File) {
-	if e.FileModify != nil {
-		e.FileModify(path, file)
-	}
 }
 
 func (e *Events) OnFileCreate(path string) {
@@ -88,14 +80,12 @@ func NewFileCam(p string, handler func(p string, f *os.File)) (cam Cam, err erro
 	return filecam, nil
 }
 
-func NewFileCams(paths []string, handler func(p string, f *os.File)) {
-	for _, p := range paths {
-		NewFileCam(p, handler)
-	}
-}
-
 // Starts the goroutine to monitor the folder
-func NewFolderCam(p string, recursion bool, events *Events) (cam Cam, err error) {
+func NewFolderCam(p string, recursion bool, events *Events, excluded []string) (cam Cam, err error) {
+	if events == nil || events.FileModify == nil {
+		return nil, errors.New("the FileModify event needs to be defined")
+	}
+
 	info, err := os.Stat(p)
 	if err != nil {
 		return nil, err
@@ -114,15 +104,21 @@ func NewFolderCam(p string, recursion bool, events *Events) (cam Cam, err error)
 
 	var pathCam Cam
 	for _, c := range content {
+		_path := path.Join(p, c.Name())
+
+		if isInRegexSlice(excluded, _path) {
+			continue
+		}
+
 		if c.IsDir() {
-			folder, err := NewFolderCam(path.Join(p, c.Name()), recursion, events)
+			folder, err := NewFolderCam(_path, recursion, events, excluded)
 			if err != nil {
 				return nil, err
 			}
 			pathCam = folder
 			go folder.Watch()
 		} else {
-			file, err := NewFileCam(path.Join(p, c.Name()), events.onFileModify)
+			file, err := NewFileCam(_path, events.FileModify)
 			if err != nil {
 				return nil, err
 			}
@@ -132,7 +128,7 @@ func NewFolderCam(p string, recursion bool, events *Events) (cam Cam, err error)
 
 		cache = append(cache, &Cache{
 			cam:   pathCam,
-			path:  path.Join(p, c.Name()),
+			path:  _path,
 			isDir: c.IsDir(),
 		})
 	}
@@ -144,6 +140,7 @@ func NewFolderCam(p string, recursion bool, events *Events) (cam Cam, err error)
 		recursion: recursion,
 		events:    events,
 		done:      make(chan bool),
+		excluded:  excluded,
 	}
 
 	return foldercam, nil
