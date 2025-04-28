@@ -12,7 +12,7 @@ Simple folder cam usage
 func main() {
 	folder, err := cam.NewFolderCam("src", false, &cam.Events{
 		FileModify: handler,
-	})
+	}, []string{})
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +41,7 @@ Multiple folder usage
 func main() {
 	folder1, err := cam.NewFolderCam("src", false, &cam.Events{
 		FileModify: handler1,
-	})
+	}, []string{})
 	if err != nil {
 		panic(err)
 	}
@@ -49,7 +49,7 @@ func main() {
 
 	folder2, err := cam.NewFolderCam("logs", true, &cam.Events{
 		FileModify: handler2,
-	})
+	}, []string{})
 	if err != nil {
 		panic(err)
 	}
